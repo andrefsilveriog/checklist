@@ -1,2 +1,2 @@
-# checklist
-Checklist André e Jéssica
+# nossa-checklist
+checklist de tarefas diárias

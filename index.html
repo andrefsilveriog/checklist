@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Couple Checklist</title>
+  <meta name="theme-color" content="#0e0f12" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__left">
+      <div class="dateTitle" id="dateTitle">—</div>
+      <div class="subline">
+        <span class="now" id="nowClock">Now: —</span>
+        <span class="dot">•</span>
+        <label class="datePickerLabel" title="Select date">
+          <span class="calendarIcon" aria-hidden="true">📅</span>
+          <input id="datePicker" type="date" lang="pt-BR" />
+        </label>
+      </div>
+    </div>
+
+    <div class="topbar__right">
+      <button class="btn btn--primary" id="addBtn" type="button">+ Add task</button>
+      <button class="btn" id="sendBtn" type="button" disabled>Send</button>
+      <button class="iconBtn" id="userBtn" type="button" title="Who are you?">👤</button>
+      <button class="iconBtn" id="themeToggle" type="button" title="Toggle theme">🌓</button>
+    </div>
+  </header>
+
+  <main class="board" aria-label="Checklist board">
+    <section class="lane" aria-label="André lane" data-owner="andre">
+      <div class="lane__header">
+        <h2>André</h2>
+        <div class="lane__hint">Drag tasks here</div>
+      </div>
+      <div class="taskList" id="list-andre" data-owner="andre" aria-label="André task list"></div>
+    </section>
+
+    <section class="lane" aria-label="Jéssica lane" data-owner="jessica">
+      <div class="lane__header">
+        <h2>Jéssica</h2>
+        <div class="lane__hint">Drag tasks here</div>
+      </div>
+      <div class="taskList" id="list-jessica" data-owner="jessica" aria-label="Jéssica task list"></div>
+    </section>
+  </main>
+
+  <!-- Who are you modal (room + install) -->
+  <div class="modalOverlay hidden" id="whoOverlay" aria-hidden="true">
+    <div class="modal modal--small" role="dialog" aria-modal="true" aria-labelledby="whoTitle">
+      <div class="modal__header">
+        <h3 id="whoTitle">Who are you?</h3>
+        <button class="iconBtn" id="closeWho" aria-label="Close">✕</button>
+      </div>
+      <div class="modal__body">
+        <div class="whoBtns">
+          <button class="btn btn--primary" id="whoAndre" type="button">I'm André</button>
+          <button class="btn btn--primary" id="whoJessica" type="button">I'm Jéssica</button>
+          <button class="btn" id="whoBoth" type="button">Both (public / kiosk)</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="whoActions">
+          <button class="btn" id="copyRoomLink" type="button">Copy room link</button>
+          <button class="btn" id="installBtn" type="button">Add to Home Screen</button>
+        </div>
+        <p class="muted small" id="roomHint">Tip: share the room link so both phones sync.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Install help (iOS) -->
+  <div class="modalOverlay hidden" id="installHelpOverlay" aria-hidden="true">
+    <div class="modal modal--small" role="dialog" aria-modal="true" aria-labelledby="installHelpTitle">
+      <div class="modal__header">
+        <h3 id="installHelpTitle">Add to Home Screen</h3>
+        <button class="iconBtn" id="closeInstallHelp" aria-label="Close">✕</button>
+      </div>
+      <div class="modal__body">
+        <p class="muted">On iPhone/iPad, install works from <strong>Safari</strong>:</p>
+        <ol class="steps">
+          <li>Open this page in Safari.</li>
+          <li>Tap <strong>Share</strong> (the square with an up arrow).</li>
+          <li>Tap <strong>Add to Home Screen</strong>.</li>
+        </ol>
+        <div class="modal__footer">
+          <button class="btn btn--primary" id="installHelpOk" type="button">Got it</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add / Edit Modal -->
+  <div class="modalOverlay hidden" id="addModalOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="addModalTitle">
+      <div class="modal__header">
+        <h3 id="addModalTitle">Add task</h3>
+        <button class="iconBtn" id="closeAddModal" aria-label="Close">✕</button>
+      </div>
+
+      <form id="addForm" class="modal__body">
+        <div class="grid2">
+          <label class="field">
+            <span>Title</span>
+            <input id="taskTitle" type="text" maxlength="80" placeholder="e.g., Pay bills" required />
+          </label>
+
+          <label class="field">
+            <span>Due time (24h)</span>
+            <input id="taskTime" type="time" step="60" required />
+          </label>
+        </div>
+
+        <div class="grid2">
+          <label class="field">
+            <span>Frequency</span>
+            <select id="taskFreq">
+              <option value="one-time">One-time (selected date)</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Biweekly</option>
+            </select>
+          </label>
+
+          <label class="field" id="weekdayField">
+            <span>Weekday</span>
+            <select id="taskWeekday">
+              <option value="0">Sunday</option>
+              <option value="1">Monday</option>
+              <option value="2">Tuesday</option>
+              <option value="3">Wednesday</option>
+              <option value="4">Thursday</option>
+              <option value="5">Friday</option>
+              <option value="6">Saturday</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="grid2">
+          <label class="field">
+            <span>Starts</span>
+            <div class="helpLine" id="startDateHelp">Uses the selected date (or the closest matching weekday).</div>
+          </label>
+
+          <label class="field">
+            <span>Assigned to</span>
+            <select id="taskOwner">
+              <option value="andre">André</option>
+              <option value="jessica">Jéssica</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="grid2">
+          <label class="field">
+            <span>Visibility</span>
+            <select id="taskVisibility">
+              <option value="public">Public (both / kiosk)</option>
+              <option value="private">Private (only assignee)</option>
+            </select>
+            <div class="helpLine">Private tasks are hidden from the other person.</div>
+          </label>
+          <div></div>
+        </div>
+
+        <div class="modal__footer">
+          <button class="btn" type="button" id="cancelAdd">Cancel</button>
+          <button class="btn btn--primary" type="submit" id="saveTaskBtn">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Apply Drag Scope Modal -->
+  <div class="modalOverlay hidden" id="scopeModalOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="scopeModalTitle">
+      <div class="modal__header">
+        <h3 id="scopeModalTitle">Apply this drag to…</h3>
+        <button class="iconBtn" id="closeScopeModal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal__body">
+        <p class="muted" id="scopeModalDesc">
+          This task repeats. Do you want this change to apply only to the selected day, or for future repeats too?
+        </p>
+        <div class="modal__footer">
+          <button class="btn" id="scopeDayBtn" type="button">Just this day</button>
+          <button class="btn btn--primary" id="scopeAlwaysBtn" type="button">Always (future repeats)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Scope Modal -->
+  <div class="modalOverlay hidden" id="deleteModalOverlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+      <div class="modal__header">
+        <h3 id="deleteModalTitle">Delete recurring task</h3>
+        <button class="iconBtn" id="closeDeleteModal" aria-label="Close">✕</button>
+      </div>
+      <div class="modal__body">
+        <p class="muted" id="deleteModalDesc">
+          Do you want to delete this task only for the selected day, or delete it forever?
+        </p>
+        <div class="modal__footer">
+          <button class="btn" id="deleteTodayBtn" type="button">Delete for this day</button>
+          <button class="btn btn--danger" id="deleteForeverBtn" type="button">Delete forever</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" aria-live="polite" aria-atomic="true"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
