@@ -24,22 +24,14 @@
 
     <div class="topbar__right">
       <button class="btn btn--primary" id="addBtn" type="button">+ Add task</button>
-      <button class="btn" id="sendBtn" type="button" disabled>Send</button>
-      <span class="unsavedLabel hidden" id="unsavedLabel">Unsaved changes</span>
-      <button class="iconBtn" id="undoBtn" type="button" title="Undo" disabled>↶</button>
+      <div class="sendWrap" id="sendWrap" aria-live="polite">
+        <button class="btn" id="sendBtn" type="button" disabled>Send</button>
+        <span class="unsavedLabel" id="unsavedLabel">Unsaved changes</span>
+      </div>
       <button class="iconBtn" id="userBtn" type="button" title="Who are you?">👤</button>
       <button class="iconBtn" id="themeToggle" type="button" title="Toggle theme">🌓</button>
     </div>
   </header>
-
-  <div class="banner hidden" id="conflictBanner" role="status" aria-live="polite" aria-atomic="true">
-    <div class="banner__text" id="conflictText">Cloud updated on another device while you have unsaved changes.</div>
-    <div class="banner__actions">
-      <button class="btn" id="conflictDiscardBtn" type="button">Discard my changes</button>
-      <button class="btn btn--primary" id="conflictSendAnywayBtn" type="button">Send anyway</button>
-    </div>
-  </div>
-
 
   <main class="board" aria-label="Checklist board">
     <section class="lane" aria-label="André lane" data-owner="andre">
