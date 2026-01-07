@@ -435,3 +435,50 @@ body.theme-light{
   --shadow: 0 10px 30px rgba(15,23,42,.12);
   --ring: rgba(59,130,246,.20);
 }
+
+
+/* --- Dirty / Send UX --- */
+.unsavedLabel{
+  font-size: 12px;
+  opacity: 0.85;
+  user-select: none;
+}
+
+.btn.is-dirty{
+  animation: dirtyPulse 1.25s ease-in-out infinite;
+}
+
+@keyframes dirtyPulse{
+  0%   { box-shadow: 0 0 0 0 rgba(255,255,255,0.0); }
+  50%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.12); }
+  100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.0); }
+}
+
+/* --- Conflict banner (only shows when needed) --- */
+.banner{
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 193, 7, 0.12);
+  border: 1px solid rgba(255, 193, 7, 0.22);
+  backdrop-filter: blur(8px);
+}
+
+.banner__text{
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.banner__actions{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}

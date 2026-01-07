@@ -14,6 +14,25 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
     return out;
   };
 
+  const deepClone = (obj) => {
+    try { return structuredClone(obj); } catch (_e) { return JSON.parse(JSON.stringify(obj)); }
+  };
+
+  const stableStringify = (value) => {
+    const seen = new WeakSet();
+    const sortKeys = (v) => {
+      if (v === null || typeof v !== "object") return v;
+      if (seen.has(v)) return null;
+      seen.add(v);
+      if (Array.isArray(v)) return v.map(sortKeys);
+      const out = {};
+      for (const k of Object.keys(v).sort()) out[k] = sortKeys(v[k]);
+      return out;
+    };
+    return JSON.stringify(sortKeys(value));
+  };
+
+
   const url = new URL(window.location.href);
   // In installed PWAs (Android/iOS home screen), the app often launches using manifest.start_url
   // (without query params). To avoid creating a new room every launch, we persist the last room id.
@@ -62,7 +81,17 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
 
     // If remote updates arrive while we have unsent local edits
     remoteWhileDirty: null,
-    warnedRemoteWhileDirty: false
+    warnedRemoteWhileDirty: false,
+
+    // canonical state (last applied from server)
+    canonicalRev: 0,
+    canonicalJSON: "",
+
+    // conflict detection
+    baseRevAtDirty: 0,
+    remoteRevWhileDirty: 0,
+    forceSend: false,
+    sending: false
   };
 
   const el = (id) => document.getElementById(id);
@@ -73,8 +102,15 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
     nowClock: el("nowClock"),
     addBtn: el("addBtn"),
     sendBtn: el("sendBtn"),
+    unsavedLabel: el("unsavedLabel"),
+    undoBtn: el("undoBtn"),
     userBtn: el("userBtn"),
     themeToggle: el("themeToggle"),
+
+    conflictBanner: el("conflictBanner"),
+    conflictText: el("conflictText"),
+    conflictDiscardBtn: el("conflictDiscardBtn"),
+    conflictSendAnywayBtn: el("conflictSendAnywayBtn"),
     listAndre: el("list-andre"),
     listJessica: el("list-jessica"),
 
@@ -260,6 +296,22 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
     window.clearTimeout(showToast._t);
     showToast._t = window.setTimeout(() => ui.toast.classList.remove("show"), 1800);
   };
+
+  const hideConflictBanner = () => {
+    if (!ui.conflictBanner) return;
+    ui.conflictBanner.classList.add("hidden");
+  };
+
+  const showConflictBanner = (serverRev) => {
+    if (!ui.conflictBanner) return;
+    const base = cloud.baseRevAtDirty || 0;
+    const rev = Number(serverRev || cloud.remoteRevWhileDirty || 0) || 0;
+    if (ui.conflictText){
+      ui.conflictText.textContent = `Cloud updated (rev ${rev}) while you have unsaved changes (based on rev ${base}). Choose what to do.`;
+    }
+    ui.conflictBanner.classList.remove("hidden");
+  };
+
 
   // ---------- storage ----------
   const defaultState = () => ({
@@ -476,16 +528,46 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
   const CLOUD_SCHEMA = 6;
 
   let state = defaultState();
+  cloud.canonicalJSON = stableStringify(state);
+  cloud.canonicalRev = 0;
   let selectedDate = toISODate(new Date());
   let isDirty = false;
 
+  // last-action undo (single step)
+  const undo = { snapshot: null };
+
   const updateSendButton = () => {
-    if (!ui.sendBtn) return;
-    ui.sendBtn.disabled = !isDirty;
+    if (ui.sendBtn){
+      ui.sendBtn.disabled = !isDirty || !!cloud.sending;
+      ui.sendBtn.classList.toggle("is-dirty", isDirty && !cloud.sending);
+    }
+    if (ui.unsavedLabel){
+      ui.unsavedLabel.classList.toggle("hidden", !isDirty);
+    }
+    if (ui.undoBtn){
+      ui.undoBtn.disabled = !undo.snapshot;
+    }
   };
 
   const markDirty = () => {
-    isDirty = true;
+    const prev = isDirty;
+    const canonical = cloud.canonicalJSON || "";
+    const cur = stableStringify(state);
+    isDirty = canonical ? (cur !== canonical) : true;
+
+    if (isDirty && !prev){
+      cloud.baseRevAtDirty = cloud.canonicalRev || cloud.lastRev || 0;
+      cloud.forceSend = false;
+    }
+
+    if (!isDirty){
+      cloud.remoteWhileDirty = null;
+      cloud.remoteRevWhileDirty = 0;
+      cloud.warnedRemoteWhileDirty = false;
+      hideConflictBanner();
+      undo.snapshot = null;
+    }
+
     updateSendButton();
   };
 
@@ -493,6 +575,21 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
   const commitState = (_patchFn) => {
     markDirty();
   };
+
+  const beginUndoStep = () => {
+    undo.snapshot = deepClone(state);
+    updateSendButton();
+  };
+
+  const performUndo = () => {
+    if (!undo.snapshot) return;
+    state = deepClone(undo.snapshot);
+    undo.snapshot = null;
+    markDirty();
+    render();
+    showToast("Undone");
+  };
+
 
   const applyServerState = (data) => {
     if (!data || typeof data !== "object") return;
@@ -507,10 +604,9 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
     // Never overwrite local unsent edits.
     if (isDirty) {
       cloud.remoteWhileDirty = { rev, data };
-      if (!cloud.warnedRemoteWhileDirty) {
-        cloud.warnedRemoteWhileDirty = true;
-        showToast("Cloud changed on another device. Your unsent edits are kept.");
-      }
+      cloud.remoteRevWhileDirty = rev;
+      cloud.warnedRemoteWhileDirty = true;
+      showConflictBanner(rev);
       return;
     }
 
@@ -529,8 +625,13 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
 
     state = normalizeLoadedState(data.state);
     cloud.lastRev = rev;
+    cloud.canonicalRev = rev;
+    cloud.canonicalJSON = stableStringify(state);
     ensureDayState(selectedDate);
     updateSendButton();
+    isDirty = false;
+    undo.snapshot = null;
+    hideConflictBanner();
     render();
   };
 
@@ -618,6 +719,27 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
       return;
     }
 
+    // If the cloud has advanced since we started editing, require an explicit choice.
+    if (!cloud.forceSend && (cloud.baseRevAtDirty || 0) > 0) {
+      try {
+        const snap = await getDocFromServer(cloud.roomRef);
+        const data = snap.exists() ? (snap.data() || {}) : {};
+        const serverRevRaw = Number(data.rev ?? data.updatedAtMs ?? 0);
+        const serverRev = Number.isFinite(serverRevRaw) ? serverRevRaw : 0;
+
+        if (serverRev > (cloud.baseRevAtDirty || 0)) {
+          cloud.remoteRevWhileDirty = serverRev;
+          showConflictBanner(serverRev);
+          showToast("Resolve conflict before sending.");
+          return;
+        }
+      } catch (_e) {
+        // ignore; offline will be handled by send attempt
+      }
+    }
+
+    cloud.sending = true;
+    updateSendButton();
     ui.sendBtn && (ui.sendBtn.disabled = true);
     const prevText = ui.sendBtn ? ui.sendBtn.textContent : null;
     if (ui.sendBtn) ui.sendBtn.textContent = "Sending...";
@@ -650,6 +772,8 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
       });
 
       isDirty = false;
+      cloud.canonicalJSON = stableStringify(state);
+      cloud.canonicalRev = cloud.lastRev || cloud.canonicalRev || 0;
       cloud.warnedRemoteWhileDirty = false;
       cloud.remoteWhileDirty = null;
       if (committedRev != null) cloud.lastRev = Math.max(cloud.lastRev || 0, committedRev);
@@ -662,6 +786,8 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
     } catch (_e) {
       showToast("Send failed (offline?)");
     } finally {
+      cloud.sending = false;
+      cloud.forceSend = false;
       if (ui.sendBtn) ui.sendBtn.textContent = prevText || "Send";
       updateSendButton();
     }
@@ -890,6 +1016,7 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
 
   // ---------- actions ----------
   const setDone = (taskId, isoDate, isDone) => {
+    beginUndoStep();
     const ts = Date.now();
     const by = (currentViewer === "both") ? "both" : (currentViewer || null);
 
@@ -936,6 +1063,7 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
   };
 
   const addTask = ({ title, dueTime, frequency, weekday, ownerDefault, visibility }) => {
+    beginUndoStep();
     const id = safeUUID();
     const startDate = computeStartDate(frequency, selectedDate, weekday);
 
@@ -959,6 +1087,7 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
   };
 
   const updateTask = ({ taskId, title, dueTime, frequency, weekday, ownerDefault, visibility }) => {
+    beginUndoStep();
     const t = state.series[taskId];
     if (!t) return;
 
@@ -1204,6 +1333,7 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
       const dayState = ensureDayState(isoDate);
       const key = instanceKey(task.id, isoDate);
       dayState.overrides[key] = { ...(dayState.overrides[key] || {}), deleted: true };
+      beginUndoStep();
       commitState((s) => {
         const ds = ensureDayStateOn(s, isoDate);
         const k = instanceKey(task.id, isoDate);
@@ -1217,6 +1347,7 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
   };
 
   const deleteForever = (taskId) => {
+    beginUndoStep();
     // remove series + all per-day artifacts remain but won't render anymore
     delete state.series[taskId];
     commitState((s) => { if (s.series) delete s.series[taskId]; });
@@ -1294,13 +1425,21 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
 
       taskEl.setPointerCapture(ev.pointerId);
 
+      const isTouch = (ev.pointerType === "touch");
+      // On touch, require a long-press on the title area to start a drag
+      if (isTouch && !ev.target.closest(".task__title")) {
+        drag.active = false;
+        return;
+      }
+
+      const delayMs = isTouch ? 320 : 120;
       // start after short delay (helps prevent accidental drags)
       window.clearTimeout(drag._delay);
       drag._delay = window.setTimeout(() => {
         if (drag.active && !drag.started){
           startDrag(ev.clientX, ev.clientY);
         }
-      }, 120);
+      }, delayMs);
     });
 
     taskEl.addEventListener("pointermove", (ev) => {
@@ -1475,6 +1614,8 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
       return;
     }
 
+    beginUndoStep();
+
     const key = instanceKey(task.id, isoDate);
 
     if (scope === "day"){
@@ -1507,6 +1648,54 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
   // ---------- wire up ----------
   ui.addBtn.addEventListener("click", openAddModal);
   ui.sendBtn && ui.sendBtn.addEventListener("click", sendPendingChanges);
+  ui.undoBtn && ui.undoBtn.addEventListener("click", performUndo);
+
+  ui.conflictDiscardBtn && ui.conflictDiscardBtn.addEventListener("click", async () => {
+    hideConflictBanner();
+    cloud.forceSend = false;
+
+    // Discard local unsent changes and align with latest known server state
+    isDirty = false;
+    undo.snapshot = null;
+
+    if (cloud.remoteWhileDirty && cloud.remoteWhileDirty.data){
+      applyServerState(cloud.remoteWhileDirty.data);
+      cloud.remoteWhileDirty = null;
+      cloud.remoteRevWhileDirty = 0;
+      showToast("Discarded local changes.");
+      return;
+    }
+
+    await pullFromServer("discard");
+    showToast("Discarded local changes.");
+  });
+
+  ui.conflictSendAnywayBtn && ui.conflictSendAnywayBtn.addEventListener("click", async () => {
+    hideConflictBanner();
+    cloud.forceSend = true;
+    await sendPendingChanges();
+  });
+
+  // Ctrl/Cmd+Z = undo last action
+  window.addEventListener("keydown", (e) => {
+    const isMac = navigator.platform.toLowerCase().includes("mac");
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (!mod || e.key.toLowerCase() !== "z") return;
+
+    const ae = document.activeElement;
+    const tag = ae && ae.tagName ? ae.tagName.toLowerCase() : "";
+    if (tag === "input" || tag === "textarea" || (ae && ae.isContentEditable)) return;
+
+    e.preventDefault();
+    performUndo();
+  });
+
+  // Warn if closing with unsaved changes
+  window.addEventListener("beforeunload", (e) => {
+    if (!isDirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
   ui.closeAddModal.addEventListener("click", closeAddModal);
   ui.cancelAdd.addEventListener("click", closeAddModal);
 
