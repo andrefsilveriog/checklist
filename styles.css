@@ -121,13 +121,6 @@ body{
 }
 .sendWrap.isVisible{ display:flex; }
 
-.unsavedLabel{
-  font-size: 11px;
-  opacity: .75;
-  user-select: none;
-  white-space: nowrap;
-}
-
 @keyframes sendPulse{
   0%,100%{ box-shadow: 0 0 0 0 rgba(59,130,246,0); }
   50%{ box-shadow: 0 0 0 3px rgba(59,130,246,.35); }
