@@ -136,7 +136,27 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
     currentViewer = v;
     localStorage.setItem(VIEWER_KEY, v);
     closeWhoOverlay();
+    applyLaneOrder();
     render();
+  };
+
+  // ---------- lane order (André/Jéssica) ----------
+  // Rule:
+  // - If viewer is kiosk/both or André: André lane first
+  // - Otherwise (Jéssica): Jéssica lane first
+  const applyLaneOrder = () => {
+    const board = document.querySelector("main.board");
+    if (!board) return;
+    const laneAndre = board.querySelector('.lane[data-owner="andre"]');
+    const laneJessica = board.querySelector('.lane[data-owner="jessica"]');
+    if (!laneAndre || !laneJessica) return;
+
+    const preferAndreFirst = (!currentViewer || currentViewer === "andre" || currentViewer === "both" || currentViewer === "kiosk");
+    if (preferAndreFirst) {
+      if (board.firstElementChild !== laneAndre) board.insertBefore(laneAndre, laneJessica);
+    } else {
+      if (board.firstElementChild !== laneJessica) board.insertBefore(laneJessica, laneAndre);
+    }
   };
 
   // Theme toggle (manual overrides prefers-color-scheme)
@@ -1710,6 +1730,7 @@ import { initializeFirestore, doc, getDoc, getDocFromServer, setDoc, onSnapshot,
     updateStartHelp();
 
     ensureDayState(today);
+    applyLaneOrder();
     render();
     updateSendButton();
 
